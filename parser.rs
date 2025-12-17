@@ -262,4 +262,24 @@ impl PE {
 
         panic!("Could not find reloc section!");
     }
+
+    /// Returns a pointer to the first section header in the PE file
+    ///
+    /// This pointer can be used to access all section headers by incrementing it.
+    /// The number of sections is available in `nt_headers.FileHeader.NumberOfSections`.
+    pub fn get_section_headers_ptr(&self) -> *const IMAGE_SECTION_HEADER {
+        let dos_header = self.get_dos_header();
+        let nt_headers = if self.is_x64() {
+            self.get_nt_headers_x64()
+        } else {
+            // For x86, we need to cast from x32 to x64 reference
+            // This is safe because we're just reading the FileHeader which is the same
+            unsafe { std::mem::transmute(self.get_nt_headers_x86()) }
+        };
+
+        ((dos_header.e_lfanew as usize + std::mem::size_of::<u32>()
+            + std::mem::size_of::<IMAGE_FILE_HEADER>()
+            + nt_headers.FileHeader.SizeOfOptionalHeader as usize) as *const u8)
+            as *const IMAGE_SECTION_HEADER
+    }
 }
