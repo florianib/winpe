@@ -94,16 +94,16 @@ impl PE {
 
     fn create_export_table(&self) -> ExportTable {
         let export_table_data = self.get_export_table_data();
-        let export_table_offset = self.rva_to_offset(&export_table_data, export_table_data.export_directory.VirtualAddress);
+        let export_table_offset = self.rva_to_file_offset(export_table_data.export_directory.VirtualAddress as usize);
         let export_table = unsafe {
-            *(self.data.as_ptr().add(export_table_offset as usize).cast::<IMAGE_EXPORT_DIRECTORY>())
+            *(self.data.as_ptr().add(export_table_offset).cast::<IMAGE_EXPORT_DIRECTORY>())
         };
 
-        let names_offset = self.rva_to_offset(&export_table_data, export_table.AddressOfNames);
-        let export_names = self.create_export_array(names_offset as usize, export_table.NumberOfNames, &export_table_data);
+        let names_offset = self.rva_to_file_offset(export_table.AddressOfNames as usize);
+        let export_names = self.create_export_array(names_offset, export_table.NumberOfNames, &export_table_data);
 
-        let ordinals_offset = self.rva_to_offset(&export_table_data, export_table.AddressOfNameOrdinals);
-        let export_ordinals = self.create_ordinals_array(ordinals_offset as usize, export_table.NumberOfFunctions, export_table.Base);
+        let ordinals_offset = self.rva_to_file_offset(export_table.AddressOfNameOrdinals as usize);
+        let export_ordinals = self.create_ordinals_array(ordinals_offset, export_table.NumberOfFunctions, export_table.Base);
 
         ExportTable {
             array_of_names: export_names,
@@ -141,13 +141,13 @@ impl PE {
         &self,
         names_array_offset: usize,
         number_of_names: u32,
-        export_table_data: &ExportTableData,
+        _export_table_data: &ExportTableData,
     ) -> Vec<String> {
         (0..number_of_names)
             .map(|i| {
                 let name_rva = read_u32_le(&self.data, names_array_offset + (i as usize * 4));
-                let name_offset = self.rva_to_offset(export_table_data, name_rva);
-                self.parse_name(name_offset as usize)
+                let name_offset = self.rva_to_file_offset(name_rva as usize);
+                self.parse_name(name_offset)
             })
             .collect()
     }
@@ -174,6 +174,19 @@ impl PE {
             .collect()
     }
 
+    /// Calculates the section table offset
+    fn section_table_offset(&self) -> usize {
+        if self.x64 {
+            std::mem::size_of::<u32>()
+                + std::mem::size_of::<IMAGE_FILE_HEADER>()
+                + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize
+        } else {
+            std::mem::size_of::<u32>()
+                + std::mem::size_of::<IMAGE_FILE_HEADER>()
+                + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize
+        }
+    }
+
     /// Converts a Relative Virtual Address (RVA) to a file offset
     ///
     /// # Arguments
@@ -191,15 +204,7 @@ impl PE {
             self.nt_headers_x86.FileHeader.NumberOfSections
         };
 
-        let section_table_offset = if self.x64 {
-            std::mem::size_of::<u32>()
-                + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize
-        } else {
-            std::mem::size_of::<u32>()
-                + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize
-        };
+        let section_table_offset = self.section_table_offset();
 
         for i in 0..section_count {
             let section_header_offset = self.dos_header.e_lfanew as usize
@@ -216,10 +221,6 @@ impl PE {
         }
 
         panic!("Could not find correct section!");
-    }
-
-    fn rva_to_offset(&self, export_table_data: &ExportTableData, rva: u32) -> u32 {
-        self.rva_to_file_offset(rva as usize) as u32
     }
 
     /// Finds a section header by its virtual address
@@ -239,15 +240,7 @@ impl PE {
             self.nt_headers_x86.FileHeader.NumberOfSections
         };
 
-        let section_table_offset = if self.x64 {
-            std::mem::size_of::<u32>()
-                + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize
-        } else {
-            std::mem::size_of::<u32>()
-                + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize
-        };
+        let section_table_offset = self.section_table_offset();
 
         for i in 0..section_count {
             let section_header_offset = self.dos_header.e_lfanew as usize
