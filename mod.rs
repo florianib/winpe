@@ -61,9 +61,9 @@ fn read_u16_le(data: &[u8], offset: usize) -> u16 {
 }
 
 struct ExportTableData {
-    num_of_sections: u16,
+    section_count: u16,
     section_table_offset: usize,
-    export_table_data: IMAGE_DATA_DIRECTORY
+    export_directory: IMAGE_DATA_DIRECTORY
 }
 
 /// Represents an export table from a PE file
@@ -168,46 +168,46 @@ impl PE {
 
     fn create_export_table(&self) -> ExportTable {
         let export_table_data = self.get_export_table_data();
-        let export_table_offset = self.rva_to_offset(&export_table_data, export_table_data.export_table_data.VirtualAddress);
+        let export_table_offset = self.rva_to_offset(&export_table_data, export_table_data.export_directory.VirtualAddress);
         let export_table = unsafe { *(self.data.as_ptr().add(export_table_offset as usize).cast::<IMAGE_EXPORT_DIRECTORY>())};
 
-        let address_of_names_offset = self.rva_to_offset(&export_table_data, export_table.AddressOfNames);
-        let export_names_array = self.create_export_array(address_of_names_offset as usize, export_table.NumberOfNames, &export_table_data);
+        let names_offset = self.rva_to_offset(&export_table_data, export_table.AddressOfNames);
+        let export_names = self.create_export_array(names_offset as usize, export_table.NumberOfNames, &export_table_data);
 
-        let address_of_ordinals_offset = self.rva_to_offset(&export_table_data, export_table.AddressOfNameOrdinals);
-        let export_ordinals_array = self.create_ordinals_array(address_of_ordinals_offset as usize, export_table.NumberOfFunctions, export_table.Base);
+        let ordinals_offset = self.rva_to_offset(&export_table_data, export_table.AddressOfNameOrdinals);
+        let export_ordinals = self.create_ordinals_array(ordinals_offset as usize, export_table.NumberOfFunctions, export_table.Base);
 
-        ExportTable {array_of_names: export_names_array, array_of_ordinals: export_ordinals_array}
+        ExportTable {array_of_names: export_names, array_of_ordinals: export_ordinals}
     }
 
     fn get_export_table_data(&self) -> ExportTableData {
-        let num_of_sections;
+        let section_count;
         let section_table_offset;
-        let export_table_data;
+        let export_directory;
 
         if self.x64 {
-            export_table_data = self.nt_headers_x64.OptionalHeader.DataDirectory[0];
-            num_of_sections = self.nt_headers_x64.FileHeader.NumberOfSections;
+            export_directory = self.nt_headers_x64.OptionalHeader.DataDirectory[0];
+            section_count = self.nt_headers_x64.FileHeader.NumberOfSections;
             section_table_offset = std::mem::size_of::<u32>() + std::mem::size_of::<IMAGE_FILE_HEADER>() + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize;
         } else {
-            export_table_data = self.nt_headers_x86.OptionalHeader.DataDirectory[0];
-            num_of_sections = self.nt_headers_x86.FileHeader.NumberOfSections;
+            export_directory = self.nt_headers_x86.OptionalHeader.DataDirectory[0];
+            section_count = self.nt_headers_x86.FileHeader.NumberOfSections;
             section_table_offset = std::mem::size_of::<u32>() + std::mem::size_of::<IMAGE_FILE_HEADER>() + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize;
         }
 
-        ExportTableData {num_of_sections, section_table_offset, export_table_data}
+        ExportTableData {section_count, section_table_offset, export_directory}
     }
 
     fn create_export_array(
         &self,
-        address_of_names_array_offset: usize,
+        names_array_offset: usize,
         number_of_names: u32,
         export_table_data: &ExportTableData,
     ) -> Vec<String> {
         (0..number_of_names)
             .map(|i| {
                 let name_rva =
-                    read_u32_le(&self.data, address_of_names_array_offset + (i as usize * 4));
+                    read_u32_le(&self.data, names_array_offset + (i as usize * 4));
                 let name_offset = self.rva_to_offset(export_table_data, name_rva);
                 self.parse_name(name_offset as usize)
             })
@@ -224,21 +224,21 @@ impl PE {
 
     fn create_ordinals_array(
         &self,
-        address_of_ordinals_offset: usize,
-        num_of_functions: u32,
+        ordinals_array_offset: usize,
+        function_count: u32,
         base: u32,
     ) -> Vec<u32> {
-        (0..num_of_functions)
+        (0..function_count)
             .map(|i| {
                 let ordinal =
-                    read_u16_le(&self.data, address_of_ordinals_offset + (i as usize * 2));
+                    read_u16_le(&self.data, ordinals_array_offset + (i as usize * 2));
                 ordinal as u32 + base
             })
             .collect()
     }
 
     fn rva_to_offset(&self, export_table_data: &ExportTableData, rva: u32) -> u32 {
-        for i in 0..export_table_data.num_of_sections {
+        for i in 0..export_table_data.section_count {
             let section_header_offset = self.dos_header.e_lfanew as usize
                 + export_table_data.section_table_offset
                 + std::mem::size_of::<IMAGE_SECTION_HEADER>() * (i as usize);
