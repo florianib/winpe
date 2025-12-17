@@ -19,6 +19,12 @@ for (name, ordinal) in exports.array_of_names.iter().zip(exports.array_of_ordina
 }
 ```
 
+## Module Structure
+
+- `constants.rs` - PE header constants (magic numbers, offsets)
+- `types.rs` - Core data structures (PE, ExportTable, ExportTableData)
+- `parser.rs` - PE binary parsing logic
+
 ## API
 
 ### Main Types
