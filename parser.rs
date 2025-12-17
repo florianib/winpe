@@ -174,21 +174,94 @@ impl PE {
             .collect()
     }
 
-    fn rva_to_offset(&self, export_table_data: &ExportTableData, rva: u32) -> u32 {
-        for i in 0..export_table_data.section_count {
+    /// Converts a Relative Virtual Address (RVA) to a file offset
+    ///
+    /// # Arguments
+    /// * `rva` - The RVA to convert
+    ///
+    /// # Returns
+    /// The file offset corresponding to the RVA
+    ///
+    /// # Panics
+    /// Panics if the RVA cannot be found in any section
+    pub fn rva_to_file_offset(&self, rva: usize) -> usize {
+        let section_count = if self.x64 {
+            self.nt_headers_x64.FileHeader.NumberOfSections
+        } else {
+            self.nt_headers_x86.FileHeader.NumberOfSections
+        };
+
+        let section_table_offset = if self.x64 {
+            std::mem::size_of::<u32>()
+                + std::mem::size_of::<IMAGE_FILE_HEADER>()
+                + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize
+        } else {
+            std::mem::size_of::<u32>()
+                + std::mem::size_of::<IMAGE_FILE_HEADER>()
+                + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize
+        };
+
+        for i in 0..section_count {
             let section_header_offset = self.dos_header.e_lfanew as usize
-                + export_table_data.section_table_offset
+                + section_table_offset
                 + std::mem::size_of::<IMAGE_SECTION_HEADER>() * (i as usize);
 
             let section_header = unsafe {
                 *(self.data.as_ptr().add(section_header_offset).cast::<IMAGE_SECTION_HEADER>())
             };
-            let end_of_header = section_header.VirtualAddress + section_header.SizeOfRawData;
+            let end_of_header = section_header.VirtualAddress as usize + section_header.SizeOfRawData as usize;
             if end_of_header >= rva {
-                return rva - section_header.VirtualAddress + section_header.PointerToRawData;
+                return rva - section_header.VirtualAddress as usize + section_header.PointerToRawData as usize;
             }
         }
 
-        panic!("Could not find section containing RVA {:#x}", rva);
+        panic!("Could not find correct section!");
+    }
+
+    fn rva_to_offset(&self, export_table_data: &ExportTableData, rva: u32) -> u32 {
+        self.rva_to_file_offset(rva as usize) as u32
+    }
+
+    /// Finds a section header by its virtual address
+    ///
+    /// # Arguments
+    /// * `virtual_address` - The virtual address to search for
+    ///
+    /// # Returns
+    /// The IMAGE_SECTION_HEADER matching the virtual address
+    ///
+    /// # Panics
+    /// Panics if no section with the given virtual address is found
+    pub fn get_section_by_virtual_address(&self, virtual_address: u32) -> IMAGE_SECTION_HEADER {
+        let section_count = if self.x64 {
+            self.nt_headers_x64.FileHeader.NumberOfSections
+        } else {
+            self.nt_headers_x86.FileHeader.NumberOfSections
+        };
+
+        let section_table_offset = if self.x64 {
+            std::mem::size_of::<u32>()
+                + std::mem::size_of::<IMAGE_FILE_HEADER>()
+                + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize
+        } else {
+            std::mem::size_of::<u32>()
+                + std::mem::size_of::<IMAGE_FILE_HEADER>()
+                + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize
+        };
+
+        for i in 0..section_count {
+            let section_header_offset = self.dos_header.e_lfanew as usize
+                + section_table_offset
+                + std::mem::size_of::<IMAGE_SECTION_HEADER>() * (i as usize);
+
+            let section_header = unsafe {
+                *(self.data.as_ptr().add(section_header_offset).cast::<IMAGE_SECTION_HEADER>())
+            };
+            if virtual_address == section_header.VirtualAddress {
+                return section_header;
+            }
+        }
+
+        panic!("Could not find reloc section!");
     }
 }
