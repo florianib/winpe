@@ -65,17 +65,17 @@ pub struct ExportTable {
 #[derive(Clone)]
 pub struct PE {
     /// Whether this is an x64 PE file (true) or x86 (false)
-    pub x64: bool,
+    x64: bool,
     /// DOS header
-    pub dos_header: IMAGE_DOS_HEADER,
+    dos_header: IMAGE_DOS_HEADER,
     /// NT headers for x86
-    pub nt_headers_x86: IMAGE_NT_HEADERS32,
+    nt_headers_x86: IMAGE_NT_HEADERS32,
     /// NT headers for x64
-    pub nt_headers_x64: IMAGE_NT_HEADERS64,
+    nt_headers_x64: IMAGE_NT_HEADERS64,
     /// Raw PE binary data
-    pub data: Vec<u8>,
+    data: Vec<u8>,
     /// Export table
-    pub export_table: ExportTable,
+    export_table: ExportTable,
 }
 
 impl std::fmt::Debug for PE {
@@ -88,6 +88,24 @@ impl std::fmt::Debug for PE {
 }
 
 impl PE {
+    /// Creates a new PE instance (internal use)
+    pub(crate) fn new(
+        dos_header: IMAGE_DOS_HEADER,
+        x64: bool,
+        nt_headers_x64: IMAGE_NT_HEADERS64,
+        nt_headers_x86: IMAGE_NT_HEADERS32,
+        data: Vec<u8>,
+    ) -> PE {
+        PE {
+            dos_header,
+            x64,
+            nt_headers_x64,
+            nt_headers_x86,
+            data,
+            export_table: Default::default(),
+        }
+    }
+
     /// Returns true if the PE file is x64, false if x86
     pub fn is_x64(&self) -> bool {
         self.x64
@@ -96,5 +114,35 @@ impl PE {
     /// Returns a reference to the export table
     pub fn get_export_table(&self) -> &ExportTable {
         &self.export_table
+    }
+
+    /// Returns a reference to the DOS header
+    pub fn get_dos_header(&self) -> &IMAGE_DOS_HEADER {
+        &self.dos_header
+    }
+
+    /// Returns a reference to the raw PE binary data
+    pub fn get_data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Returns a mutable reference to the export table
+    pub fn get_export_table_mut(&mut self) -> &mut ExportTable {
+        &mut self.export_table
+    }
+
+    /// Returns a mutable reference to the raw PE binary data
+    pub fn get_data_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.data
+    }
+
+    /// Returns a reference to the NT headers for x64
+    pub fn get_nt_headers_x64(&self) -> &IMAGE_NT_HEADERS64 {
+        &self.nt_headers_x64
+    }
+
+    /// Returns a reference to the NT headers for x86
+    pub fn get_nt_headers_x86(&self) -> &IMAGE_NT_HEADERS32 {
+        &self.nt_headers_x86
     }
 }

@@ -77,17 +77,16 @@ impl PE {
             panic!("Invalid PE binary file format");
         }
 
-        let mut pe = PE {
+        let mut pe = PE::new(
             dos_header,
             x64,
             nt_headers_x64,
             nt_headers_x86,
             data,
-            export_table: Default::default(),
-        };
+        );
 
         let export_table = pe.create_export_table();
-        pe.export_table = export_table;
+        *pe.get_export_table_mut() = export_table;
 
         pe
     }
@@ -96,7 +95,7 @@ impl PE {
         let export_table_data = self.get_export_table_data();
         let export_table_offset = self.rva_to_file_offset(export_table_data.export_directory.VirtualAddress as usize);
         let export_table = unsafe {
-            *(self.data.as_ptr().add(export_table_offset).cast::<IMAGE_EXPORT_DIRECTORY>())
+            *(self.get_data().as_ptr().add(export_table_offset).cast::<IMAGE_EXPORT_DIRECTORY>())
         };
 
         let names_offset = self.rva_to_file_offset(export_table.AddressOfNames as usize);
@@ -112,21 +111,21 @@ impl PE {
     }
 
     fn get_export_table_data(&self) -> ExportTableData {
-        let (export_directory, section_count, section_table_offset) = if self.x64 {
+        let (export_directory, section_count, section_table_offset) = if self.is_x64() {
             (
-                self.nt_headers_x64.OptionalHeader.DataDirectory[0],
-                self.nt_headers_x64.FileHeader.NumberOfSections,
+                self.get_nt_headers_x64().OptionalHeader.DataDirectory[0],
+                self.get_nt_headers_x64().FileHeader.NumberOfSections,
                 std::mem::size_of::<u32>()
                     + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                    + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize,
+                    + self.get_nt_headers_x64().FileHeader.SizeOfOptionalHeader as usize,
             )
         } else {
             (
-                self.nt_headers_x86.OptionalHeader.DataDirectory[0],
-                self.nt_headers_x86.FileHeader.NumberOfSections,
+                self.get_nt_headers_x86().OptionalHeader.DataDirectory[0],
+                self.get_nt_headers_x86().FileHeader.NumberOfSections,
                 std::mem::size_of::<u32>()
                     + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                    + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize,
+                    + self.get_nt_headers_x86().FileHeader.SizeOfOptionalHeader as usize,
             )
         };
 
@@ -143,9 +142,10 @@ impl PE {
         number_of_names: u32,
         _export_table_data: &ExportTableData,
     ) -> Vec<String> {
+        let data = self.get_data();
         (0..number_of_names)
             .map(|i| {
-                let name_rva = read_u32_le(&self.data, names_array_offset + (i as usize * 4));
+                let name_rva = read_u32_le(data, names_array_offset + (i as usize * 4));
                 let name_offset = self.rva_to_file_offset(name_rva as usize);
                 self.parse_name(name_offset)
             })
@@ -153,7 +153,7 @@ impl PE {
     }
 
     fn parse_name(&self, name_offset: usize) -> String {
-        self.data[name_offset..]
+        self.get_data()[name_offset..]
             .iter()
             .take_while(|&&b| b != 0)
             .filter_map(|&b| char::from_u32(b as u32))
@@ -166,9 +166,10 @@ impl PE {
         function_count: u32,
         base: u32,
     ) -> Vec<u32> {
+        let data = self.get_data();
         (0..function_count)
             .map(|i| {
-                let ordinal = read_u16_le(&self.data, ordinals_array_offset + (i as usize * 2));
+                let ordinal = read_u16_le(data, ordinals_array_offset + (i as usize * 2));
                 ordinal as u32 + base
             })
             .collect()
@@ -176,14 +177,14 @@ impl PE {
 
     /// Calculates the section table offset
     fn section_table_offset(&self) -> usize {
-        if self.x64 {
+        if self.is_x64() {
             std::mem::size_of::<u32>()
                 + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                + self.nt_headers_x64.FileHeader.SizeOfOptionalHeader as usize
+                + self.get_nt_headers_x64().FileHeader.SizeOfOptionalHeader as usize
         } else {
             std::mem::size_of::<u32>()
                 + std::mem::size_of::<IMAGE_FILE_HEADER>()
-                + self.nt_headers_x86.FileHeader.SizeOfOptionalHeader as usize
+                + self.get_nt_headers_x86().FileHeader.SizeOfOptionalHeader as usize
         }
     }
 
@@ -198,21 +199,23 @@ impl PE {
     /// # Panics
     /// Panics if the RVA cannot be found in any section
     pub fn rva_to_file_offset(&self, rva: usize) -> usize {
-        let section_count = if self.x64 {
-            self.nt_headers_x64.FileHeader.NumberOfSections
+        let section_count = if self.is_x64() {
+            self.get_nt_headers_x64().FileHeader.NumberOfSections
         } else {
-            self.nt_headers_x86.FileHeader.NumberOfSections
+            self.get_nt_headers_x86().FileHeader.NumberOfSections
         };
 
         let section_table_offset = self.section_table_offset();
+        let dos_header = self.get_dos_header();
+        let data = self.get_data();
 
         for i in 0..section_count {
-            let section_header_offset = self.dos_header.e_lfanew as usize
+            let section_header_offset = dos_header.e_lfanew as usize
                 + section_table_offset
                 + std::mem::size_of::<IMAGE_SECTION_HEADER>() * (i as usize);
 
             let section_header = unsafe {
-                *(self.data.as_ptr().add(section_header_offset).cast::<IMAGE_SECTION_HEADER>())
+                *(data.as_ptr().add(section_header_offset).cast::<IMAGE_SECTION_HEADER>())
             };
             let end_of_header = section_header.VirtualAddress as usize + section_header.SizeOfRawData as usize;
             if end_of_header >= rva {
@@ -234,21 +237,23 @@ impl PE {
     /// # Panics
     /// Panics if no section with the given virtual address is found
     pub fn get_section_by_virtual_address(&self, virtual_address: u32) -> IMAGE_SECTION_HEADER {
-        let section_count = if self.x64 {
-            self.nt_headers_x64.FileHeader.NumberOfSections
+        let section_count = if self.is_x64() {
+            self.get_nt_headers_x64().FileHeader.NumberOfSections
         } else {
-            self.nt_headers_x86.FileHeader.NumberOfSections
+            self.get_nt_headers_x86().FileHeader.NumberOfSections
         };
 
         let section_table_offset = self.section_table_offset();
+        let dos_header = self.get_dos_header();
+        let data = self.get_data();
 
         for i in 0..section_count {
-            let section_header_offset = self.dos_header.e_lfanew as usize
+            let section_header_offset = dos_header.e_lfanew as usize
                 + section_table_offset
                 + std::mem::size_of::<IMAGE_SECTION_HEADER>() * (i as usize);
 
             let section_header = unsafe {
-                *(self.data.as_ptr().add(section_header_offset).cast::<IMAGE_SECTION_HEADER>())
+                *(data.as_ptr().add(section_header_offset).cast::<IMAGE_SECTION_HEADER>())
             };
             if virtual_address == section_header.VirtualAddress {
                 return section_header;
@@ -256,38 +261,5 @@ impl PE {
         }
 
         panic!("Could not find reloc section!");
-    }
-
-    /// Returns a reference to the DOS header
-    pub fn get_dos_header(&self) -> &IMAGE_DOS_HEADER {
-        &self.dos_header
-    }
-
-    /// Returns a reference to the NT headers for x64
-    /// 
-    /// # Panics
-    /// Panics if this is an x86 PE file
-    pub fn get_nt_headers_x64(&self) -> &IMAGE_NT_HEADERS64 {
-        if !self.x64 {
-            panic!("PE is x86, not x64");
-        }
-        &self.nt_headers_x64
-    }
-
-    /// Returns a reference to the NT headers for x86
-    /// 
-    /// # Panics
-    /// Panics if this is an x64 PE file
-    pub fn get_nt_headers_x86(&self) -> &IMAGE_NT_HEADERS32 {
-        if self.x64 {
-            panic!("PE is x64, not x86");
-        }
-        &self.nt_headers_x86
-    }
-
-    /// Returns a pointer to the section headers array
-    pub fn get_section_headers_ptr(&self) -> *const IMAGE_SECTION_HEADER {
-        ((self.dos_header.e_lfanew as usize
-            + self.section_table_offset()) as *const u8) as *const IMAGE_SECTION_HEADER
     }
 }
