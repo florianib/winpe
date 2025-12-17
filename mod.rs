@@ -20,4 +20,5 @@ pub mod parser;
 pub mod types;
 
 pub use parser::parse;
-pub use types::{ExportTable, PE};
+pub use types::{ExportTable, PE, RelocationEntry};
+pub use types::utils;

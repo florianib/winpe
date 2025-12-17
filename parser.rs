@@ -257,4 +257,37 @@ impl PE {
 
         panic!("Could not find reloc section!");
     }
+
+    /// Returns a reference to the DOS header
+    pub fn get_dos_header(&self) -> &IMAGE_DOS_HEADER {
+        &self.dos_header
+    }
+
+    /// Returns a reference to the NT headers for x64
+    /// 
+    /// # Panics
+    /// Panics if this is an x86 PE file
+    pub fn get_nt_headers_x64(&self) -> &IMAGE_NT_HEADERS64 {
+        if !self.x64 {
+            panic!("PE is x86, not x64");
+        }
+        &self.nt_headers_x64
+    }
+
+    /// Returns a reference to the NT headers for x86
+    /// 
+    /// # Panics
+    /// Panics if this is an x64 PE file
+    pub fn get_nt_headers_x86(&self) -> &IMAGE_NT_HEADERS32 {
+        if self.x64 {
+            panic!("PE is x64, not x86");
+        }
+        &self.nt_headers_x86
+    }
+
+    /// Returns a pointer to the section headers array
+    pub fn get_section_headers_ptr(&self) -> *const IMAGE_SECTION_HEADER {
+        ((self.dos_header.e_lfanew as usize
+            + self.section_table_offset()) as *const u8) as *const IMAGE_SECTION_HEADER
+    }
 }

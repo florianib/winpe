@@ -1,8 +1,6 @@
 //! PE data structures
 
-use windows::Win32::System::Diagnostics::Debug::IMAGE_DATA_DIRECTORY;
-use windows::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS32;
-use windows::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS64;
+use windows::Win32::System::Diagnostics::Debug::{IMAGE_DATA_DIRECTORY, IMAGE_NT_HEADERS32, IMAGE_NT_HEADERS64};
 use windows::Win32::System::SystemServices::IMAGE_DOS_HEADER;
 
 /// Internal structure for export table data
@@ -10,6 +8,48 @@ pub(crate) struct ExportTableData {
     pub section_count: u16,
     pub section_table_offset: usize,
     pub export_directory: IMAGE_DATA_DIRECTORY,
+}
+
+/// Represents a relocation entry from a PE file
+/// 
+/// Used for processing base relocations in process hollowing
+#[derive(Debug, Copy, Clone)]
+pub struct RelocationEntry {
+    data: u16,
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format#the-reloc-section-image-only
+impl RelocationEntry {
+    /// Creates a new relocation entry from raw data
+    pub fn new(data: u16) -> Self {
+        RelocationEntry { data }
+    }
+
+    /// Gets the offset field (lower 12 bits)
+    pub fn offset(&self) -> u16 {
+        self.data & 0x0FFF
+    }
+
+    /// Gets the type field (upper 4 bits)
+    pub fn type_(&self) -> u8 {
+        (self.data >> 12) as u8
+    }
+}
+
+/// PE byte-level utilities for reading and writing addresses
+pub mod utils {
+    /// Reads a 64-bit little-endian address from bytes
+    pub fn read_address(contents: &[u8], offset: usize) -> i64 {
+        let slice = &contents[offset..offset + 8];
+        let array: [u8; 8] = slice.try_into().expect("slice with incorrect length");
+        i64::from_le_bytes(array)
+    }
+
+    /// Writes a 64-bit little-endian address to bytes
+    pub fn write_address(contents: &mut [u8], offset: usize, address: i64) {
+        let bytes = address.to_le_bytes();
+        contents[offset..offset + 8].copy_from_slice(&bytes);
+    }
 }
 
 /// Represents an export table from a PE file
