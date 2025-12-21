@@ -5,19 +5,7 @@ use windows::Win32::System::SystemServices::{IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATU
 
 use crate::winpe::constants::*;
 use crate::winpe::types::{ExportTable, ExportTableData, PE};
-
-/// Reads a 32-bit little-endian integer from bytes
-fn read_u32_le(data: &[u8], offset: usize) -> u32 {
-    ((data[offset + 3] as u32) << 24)
-        | ((data[offset + 2] as u32) << 16)
-        | ((data[offset + 1] as u32) << 8)
-        | data[offset] as u32
-}
-
-/// Reads a 16-bit little-endian integer from bytes
-fn read_u16_le(data: &[u8], offset: usize) -> u16 {
-    ((data[offset + 1] as u16) << 8) | data[offset] as u16
-}
+use crate::winpe::utils::{read_u32_le, read_u16_le};
 
 /// Parses a PE binary and extracts export table information
 ///

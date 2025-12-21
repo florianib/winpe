@@ -18,7 +18,8 @@
 pub mod constants;
 pub mod parser;
 pub mod types;
+pub mod utils;
 
 pub use parser::parse;
 pub use types::{ExportTable, PE, RelocationEntry};
-pub use types::utils;
+pub use utils::{read_address, write_address, read_u32_le, read_u16_le};

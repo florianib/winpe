@@ -36,22 +36,6 @@ impl RelocationEntry {
     }
 }
 
-/// PE byte-level utilities for reading and writing addresses
-pub mod utils {
-    /// Reads a 64-bit little-endian address from bytes
-    pub fn read_address(contents: &[u8], offset: usize) -> i64 {
-        let slice = &contents[offset..offset + 8];
-        let array: [u8; 8] = slice.try_into().expect("slice with incorrect length");
-        i64::from_le_bytes(array)
-    }
-
-    /// Writes a 64-bit little-endian address to bytes
-    pub fn write_address(contents: &mut [u8], offset: usize, address: i64) {
-        let bytes = address.to_le_bytes();
-        contents[offset..offset + 8].copy_from_slice(&bytes);
-    }
-}
-
 /// Represents an export table from a PE file
 #[derive(Default, Clone, Debug)]
 pub struct ExportTable {
